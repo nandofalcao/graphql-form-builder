@@ -93,7 +93,7 @@ export default function GraphQLFormBuilder() {
     setFormData({});
   };
 
-  const handleChange = (name: string, value: string) => {
+  const handleChange = (name: string, value: any) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -106,7 +106,7 @@ export default function GraphQLFormBuilder() {
 
       parts.forEach((part, index) => {
         if (index === parts.length - 1) {
-          current[part] = isNaN(Number(value)) ? value : Number(value);
+          current[part] = value;
         } else {
           current[part] = current[part] || {};
           current = current[part];
@@ -167,13 +167,32 @@ export default function GraphQLFormBuilder() {
         <form onSubmit={handleSubmit} style={{ marginTop: "2rem" }}>
           {inputFields.map((field) => (
             <div key={field.name} style={{ marginBottom: "1rem" }}>
-              <label>
-                {field.name} ({field.type})
+              <label style={{ display: "block", fontWeight: "bold" }}>
+                {field.name.split(".").slice(-1)[0]} ({field.type})
+                {field.isRequired && " *"}
               </label>
-              <input
-                type={field.type === "Int" ? "number" : "text"}
-                onChange={(e) => handleChange(field.name, e.target.value)}
-              />
+
+              {field.type === "Boolean" ? (
+                <select
+                  onChange={(e) =>
+                    handleChange(field.name, e.target.value === "true")
+                  }
+                >
+                  <option value="">-- Selecione --</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : (
+                <input
+                  type={
+                    field.type === "Int" || field.type === "Float"
+                      ? "number"
+                      : "text"
+                  }
+                  step={field.type === "Float" ? "any" : undefined}
+                  onChange={(e) => handleChange(field.name, e.target.value)}
+                />
+              )}
             </div>
           ))}
           <button type="submit">Executar</button>
