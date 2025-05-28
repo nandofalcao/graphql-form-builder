@@ -41,6 +41,31 @@ export default function GraphQLFormBuilder() {
     return type.ofType ? unwrapType(type.ofType) : type;
   };
 
+  const extractFieldsRecursively = (
+    prefix: string,
+    inputType: GraphQLInputObjectType
+  ): any[] => {
+    const fields = inputType.getFields();
+    const extracted: any[] = [];
+
+    Object.values(fields).forEach((field) => {
+      const fullName = `${prefix}.${field.name}`;
+      const unwrapped = unwrapType(field.type);
+
+      if (isInputObjectType(unwrapped)) {
+        extracted.push(...extractFieldsRecursively(fullName, unwrapped));
+      } else {
+        extracted.push({
+          name: fullName,
+          type: unwrapped.name,
+          isRequired: field.type instanceof GraphQLNonNull,
+        });
+      }
+    });
+
+    return extracted;
+  };
+
   const handleMutationSelect = (mutationName: string) => {
     if (!schema) return;
 
@@ -52,17 +77,8 @@ export default function GraphQLFormBuilder() {
     mutation.args.forEach((arg) => {
       const baseType = unwrapType(arg.type);
 
-      // Se for input object
       if (isInputObjectType(baseType)) {
-        const nestedFields = Object.values(baseType.getFields()).map((f) => {
-          const fBase = unwrapType(f.type);
-          return {
-            name: `${arg.name}.${f.name}`,
-            type: fBase.name,
-            isRequired: f.type instanceof GraphQLNonNull,
-          };
-        });
-        formFields.push(...nestedFields);
+        formFields.push(...extractFieldsRecursively(arg.name, baseType));
       } else {
         formFields.push({
           name: arg.name,
@@ -81,41 +97,48 @@ export default function GraphQLFormBuilder() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const buildNestedObject = (entries: [string, any][]) => {
+    const result: any = {};
+
+    for (const [key, value] of entries) {
+      const parts = key.split(".");
+      let current = result;
+
+      parts.forEach((part, index) => {
+        if (index === parts.length - 1) {
+          current[part] = isNaN(Number(value)) ? value : Number(value);
+        } else {
+          current[part] = current[part] || {};
+          current = current[part];
+        }
+      });
+    }
+
+    return result;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMutation) return;
 
-    const inputBlocks: { [key: string]: string[] } = {};
+    const nested = buildNestedObject(Object.entries(formData));
 
-    for (const [key, value] of Object.entries(formData)) {
-      const [inputName, fieldName] = key.split(".");
-
-      const val = isNaN(Number(value)) ? `"${value}"` : value;
-
-      if (fieldName) {
-        inputBlocks[inputName] ??= [];
-        inputBlocks[inputName].push(`${fieldName}: ${val}`);
-      } else {
-        inputBlocks[key] = [`${val}`];
-      }
-    }
-
-    const inputStrings = Object.entries(inputBlocks)
-      .map(([argName, entries]) => {
-        const content = entries.join(", ");
-        return `${argName}: { ${content} }`;
-      })
+    const argStrings = Object.entries(nested)
+      .map(
+        ([argName, val]) =>
+          `${argName}: ${JSON.stringify(val).replace(/"([^"]+)":/g, "$1:")}`
+      )
       .join(", ");
 
     const mutation = `
       mutation {
-        ${selectedMutation}(${inputStrings}) {
+        ${selectedMutation}(${argStrings}) {
           id
         }
       }
     `;
 
-    console.log("Mutation enviada:", mutation);
+    console.log("Mutation enviada:\n", mutation);
 
     try {
       const result = await request(GRAPHQL_ENDPOINT, mutation);
