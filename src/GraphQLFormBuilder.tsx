@@ -21,6 +21,7 @@ export default function GraphQLFormBuilder() {
   const [formData, setFormData] = useState<{ [key: string]: any }>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [enumsMap, setEnumsMap] = useState<Record<string, string[]>>({});
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchSchema = async () => {
@@ -145,10 +146,7 @@ export default function GraphQLFormBuilder() {
     e.preventDefault();
     if (!selectedMutation) return;
 
-    if (!validateForm()) {
-      // alert("Preencha todos os campos obrigatórios");
-      return;
-    }
+    if (!validateForm()) return;
 
     const nested = buildNestedObject(Object.entries(formData));
 
@@ -167,15 +165,15 @@ export default function GraphQLFormBuilder() {
       }
     `;
 
-    console.log("Mutation enviada:\n", mutation);
-
+    setIsSubmitting(true);
     try {
       const result = await request(GRAPHQL_ENDPOINT, mutation);
       console.log("Resposta:", result);
-      alert("Mutation executada com sucesso!");
+      // exibir toast ou status se quiser
     } catch (err) {
       console.error("Erro:", err);
-      alert("Erro ao executar mutation.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -283,9 +281,14 @@ export default function GraphQLFormBuilder() {
 
           <button
             type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition text-left mt-4"
+            disabled={isSubmitting}
+            className={`px-6 py-2 rounded transition text-left mt-4 ${
+              isSubmitting
+                ? "bg-gray-400 cursor-not-allowed text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
+            }`}
           >
-            Executar
+            {isSubmitting ? "Enviando..." : "Executar"}
           </button>
         </form>
       )}
