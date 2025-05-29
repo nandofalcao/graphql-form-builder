@@ -145,18 +145,34 @@ export default function GraphQLFormBuilder() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const coerceValues = (val: any, type: string) => {
+    if (type === "Int") return parseInt(val, 10);
+    if (type === "Float") return parseFloat(val);
+    if (type === "Boolean") return val === "true";
+    return val;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMutation) return;
 
     if (!validateForm()) return;
 
-    const nested = buildNestedObject(Object.entries(formData));
+    const coercedFormData = Object.entries(formData).reduce(
+      (acc, [key, val]) => {
+        const fieldType = inputFields.find((f) => f.name === key)?.type;
+        acc[key] = coerceValues(val, fieldType);
+        return acc;
+      },
+      {} as Record<string, any>
+    );
+
+    const nested = buildNestedObject(Object.entries(coercedFormData));
 
     const argStrings = Object.entries(nested)
       .map(
         ([argName, val]) =>
-          `${argName}: ${JSON.stringify(val).replace(/"([^(")"]+)":/g, "$1:")}`
+          `${argName}: ${JSON.stringify(val).replace(/"([^()"]+)":/g, "$1:")}`
       )
       .join(", ");
 
@@ -213,7 +229,7 @@ export default function GraphQLFormBuilder() {
         {enumOptions ? (
           <select
             className={inputClass}
-            value={formData[fieldKey] || ""}
+            value={formData[fieldKey] ?? ""}
             onChange={(e) => handleChange(fieldKey, e.target.value)}
           >
             <option value="">-- Selecione --</option>
@@ -226,8 +242,10 @@ export default function GraphQLFormBuilder() {
         ) : field.type === "Boolean" ? (
           <select
             className={inputClass}
-            value={formData[fieldKey] || ""}
-            onChange={(e) => handleChange(fieldKey, e.target.value === "true")}
+            value={
+              formData[fieldKey] === undefined ? "" : String(formData[fieldKey])
+            }
+            onChange={(e) => handleChange(fieldKey, e.target.value)}
           >
             <option value="">-- Selecione --</option>
             <option value="true">true</option>
@@ -239,7 +257,7 @@ export default function GraphQLFormBuilder() {
               field.type === "Int" || field.type === "Float" ? "number" : "text"
             }
             step={field.type === "Float" ? "any" : undefined}
-            value={formData[fieldKey] || ""}
+            value={formData[fieldKey] ?? ""}
             className={inputClass}
             onChange={(e) => handleChange(fieldKey, e.target.value)}
           />
