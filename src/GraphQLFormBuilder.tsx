@@ -3,15 +3,15 @@ import {
   getIntrospectionQuery,
   buildClientSchema,
   GraphQLSchema,
-  GraphQLEnumType,
   GraphQLInputObjectType,
   GraphQLNonNull,
   isInputObjectType,
   isEnumType,
 } from "graphql";
-import { request } from "graphql-request";
+import { GraphQLClient } from "graphql-request";
 
 const GRAPHQL_ENDPOINT = "https://graphqlzero.almansi.me/api";
+const client = new GraphQLClient(GRAPHQL_ENDPOINT);
 
 export default function GraphQLFormBuilder() {
   const [schema, setSchema] = useState<GraphQLSchema | null>(null);
@@ -22,13 +22,14 @@ export default function GraphQLFormBuilder() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [enumsMap, setEnumsMap] = useState<Record<string, string[]>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitStatus, setSubmitStatus] = useState<"success" | "error" | "">(
+    ""
+  );
+  const [errorMessages, setErrorMessages] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchSchema = async () => {
-      const introspection = await request(
-        GRAPHQL_ENDPOINT,
-        getIntrospectionQuery()
-      );
+      const introspection = await client.request(getIntrospectionQuery());
       const builtSchema = buildClientSchema(introspection as any);
       setSchema(builtSchema);
 
@@ -106,6 +107,8 @@ export default function GraphQLFormBuilder() {
     setSelectedMutation(mutationName);
     setFormData({});
     setErrors({});
+    setSubmitStatus("");
+    setErrorMessages([]);
   };
 
   const handleChange = (name: string, value: any) => {
@@ -153,7 +156,7 @@ export default function GraphQLFormBuilder() {
     const argStrings = Object.entries(nested)
       .map(
         ([argName, val]) =>
-          `${argName}: ${JSON.stringify(val).replace(/"([^"]+)":/g, "$1:")}`
+          `${argName}: ${JSON.stringify(val).replace(/"([^(")"]+)":/g, "$1:")}`
       )
       .join(", ");
 
@@ -166,12 +169,26 @@ export default function GraphQLFormBuilder() {
     `;
 
     setIsSubmitting(true);
+    setSubmitStatus("");
+    setErrorMessages([]);
+
     try {
-      const result = await request(GRAPHQL_ENDPOINT, mutation);
-      console.log("Resposta:", result);
-      // exibir toast ou status se quiser
+      const res = await fetch(GRAPHQL_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: mutation }),
+      });
+      const json = await res.json();
+      if (json.errors?.length) {
+        setErrorMessages(json.errors.map((e: any) => e.message));
+        setSubmitStatus("error");
+      } else {
+        setSubmitStatus("success");
+      }
     } catch (err) {
-      console.error("Erro:", err);
+      console.error("Erro de rede ou desconhecido:", err);
+      setErrorMessages(["Erro de rede ou desconhecido"]);
+      setSubmitStatus("error");
     } finally {
       setIsSubmitting(false);
     }
@@ -290,6 +307,20 @@ export default function GraphQLFormBuilder() {
           >
             {isSubmitting ? "Enviando..." : "Executar"}
           </button>
+
+          {submitStatus === "success" && (
+            <p className="text-green-600 mt-2">
+              Mutation executada com sucesso!
+            </p>
+          )}
+
+          {submitStatus === "error" && errorMessages.length > 0 && (
+            <ul className="text-red-600 mt-2 list-disc list-inside space-y-1">
+              {errorMessages.map((msg, idx) => (
+                <li key={idx}>{msg}</li>
+              ))}
+            </ul>
+          )}
         </form>
       )}
     </div>
