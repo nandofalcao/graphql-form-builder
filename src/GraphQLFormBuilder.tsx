@@ -19,6 +19,7 @@ export default function GraphQLFormBuilder() {
   const [selectedMutation, setSelectedMutation] = useState<string | null>(null);
   const [inputFields, setInputFields] = useState<any[]>([]);
   const [formData, setFormData] = useState<{ [key: string]: any }>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [enumsMap, setEnumsMap] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
@@ -38,13 +39,11 @@ export default function GraphQLFormBuilder() {
 
       const allTypes = builtSchema.getTypeMap();
       const enumTypes: Record<string, string[]> = {};
-
       Object.values(allTypes).forEach((type) => {
         if (isEnumType(type)) {
           enumTypes[type.name] = type.getValues().map((v) => v.name);
         }
       });
-
       setEnumsMap(enumTypes);
     };
 
@@ -105,19 +104,19 @@ export default function GraphQLFormBuilder() {
     setInputFields(formFields);
     setSelectedMutation(mutationName);
     setFormData({});
+    setErrors({});
   };
 
   const handleChange = (name: string, value: any) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
   const buildNestedObject = (entries: [string, any][]) => {
     const result: any = {};
-
     for (const [key, value] of entries) {
       const parts = key.split(".");
       let current = result;
-
       parts.forEach((part, index) => {
         if (index === parts.length - 1) {
           current[part] = value;
@@ -127,13 +126,29 @@ export default function GraphQLFormBuilder() {
         }
       });
     }
-
     return result;
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    inputFields.forEach((field) => {
+      const value = formData[field.name];
+      if (field.isRequired && (value === undefined || value === "")) {
+        newErrors[field.name] = "Campo obrigatório";
+      }
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMutation) return;
+
+    if (!validateForm()) {
+      // alert("Preencha todos os campos obrigatórios");
+      return;
+    }
 
     const nested = buildNestedObject(Object.entries(formData));
 
@@ -168,6 +183,11 @@ export default function GraphQLFormBuilder() {
     const fieldKey = field.name;
     const label = fieldKey.split(".").slice(-1)[0];
     const enumOptions = enumsMap[field.type];
+    const error = errors[fieldKey];
+
+    const inputClass = `w-full border rounded p-2 ${
+      error ? "border-red-500" : ""
+    }`;
 
     return (
       <div key={fieldKey} className="text-left">
@@ -177,7 +197,8 @@ export default function GraphQLFormBuilder() {
 
         {enumOptions ? (
           <select
-            className="w-full border rounded p-2"
+            className={inputClass}
+            value={formData[fieldKey] || ""}
             onChange={(e) => handleChange(fieldKey, e.target.value)}
           >
             <option value="">-- Selecione --</option>
@@ -189,7 +210,8 @@ export default function GraphQLFormBuilder() {
           </select>
         ) : field.type === "Boolean" ? (
           <select
-            className="w-full border rounded p-2"
+            className={inputClass}
+            value={formData[fieldKey] || ""}
             onChange={(e) => handleChange(fieldKey, e.target.value === "true")}
           >
             <option value="">-- Selecione --</option>
@@ -202,10 +224,13 @@ export default function GraphQLFormBuilder() {
               field.type === "Int" || field.type === "Float" ? "number" : "text"
             }
             step={field.type === "Float" ? "any" : undefined}
-            className="w-full border rounded p-2"
+            value={formData[fieldKey] || ""}
+            className={inputClass}
             onChange={(e) => handleChange(fieldKey, e.target.value)}
           />
         )}
+
+        {error && <p className="text-red-600 text-sm mt-1">{error}</p>}
       </div>
     );
   };
@@ -258,7 +283,7 @@ export default function GraphQLFormBuilder() {
 
           <button
             type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition text-left"
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition text-left mt-4"
           >
             Executar
           </button>
