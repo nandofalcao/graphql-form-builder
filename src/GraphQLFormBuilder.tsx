@@ -151,10 +151,13 @@ export default function GraphQLFormBuilder() {
   };
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h2>Mutations disponíveis</h2>
+    <div className="max-w-screen-xl mx-auto p-6">
+      <h2 className="text-2xl font-semibold mb-4">Mutations disponíveis</h2>
 
-      <select onChange={(e) => handleMutationSelect(e.target.value)}>
+      <select
+        onChange={(e) => handleMutationSelect(e.target.value)}
+        className="mb-6 w-full p-2 border rounded"
+      >
         <option value="">-- Selecione uma mutation --</option>
         {mutations.map((m) => (
           <option key={m} value={m}>
@@ -164,38 +167,48 @@ export default function GraphQLFormBuilder() {
       </select>
 
       {inputFields.length > 0 && (
-        <form onSubmit={handleSubmit} style={{ marginTop: "2rem" }}>
-          {inputFields.map((field) => (
-            <div key={field.name} style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontWeight: "bold" }}>
-                {field.name.split(".").slice(-1)[0]} ({field.type})
-                {field.isRequired && " *"}
-              </label>
+        <form onSubmit={handleSubmit}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            {inputFields.map((field) => (
+              <div key={field.name}>
+                <label className="block font-medium mb-1 text-left">
+                  {field.name.split(".").slice(-1)[0]} ({field.type})
+                  {field.isRequired && " *"}
+                </label>
 
-              {field.type === "Boolean" ? (
-                <select
-                  onChange={(e) =>
-                    handleChange(field.name, e.target.value === "true")
-                  }
-                >
-                  <option value="">-- Selecione --</option>
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              ) : (
-                <input
-                  type={
-                    field.type === "Int" || field.type === "Float"
-                      ? "number"
-                      : "text"
-                  }
-                  step={field.type === "Float" ? "any" : undefined}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                />
-              )}
-            </div>
-          ))}
-          <button type="submit">Executar</button>
+                {field.type === "Boolean" ? (
+                  <select
+                    className="w-full border rounded p-2"
+                    onChange={(e) =>
+                      handleChange(field.name, e.target.value === "true")
+                    }
+                  >
+                    <option value="">-- Selecione --</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : (
+                  <input
+                    type={
+                      field.type === "Int" || field.type === "Float"
+                        ? "number"
+                        : "text"
+                    }
+                    step={field.type === "Float" ? "any" : undefined}
+                    className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300"
+                    onChange={(e) => handleChange(field.name, e.target.value)}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="submit"
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+          >
+            Executar
+          </button>
         </form>
       )}
     </div>
