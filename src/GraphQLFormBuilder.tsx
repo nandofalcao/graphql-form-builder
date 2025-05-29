@@ -3,9 +3,11 @@ import {
   getIntrospectionQuery,
   buildClientSchema,
   GraphQLSchema,
+  GraphQLEnumType,
   GraphQLInputObjectType,
   GraphQLNonNull,
   isInputObjectType,
+  isEnumType,
 } from "graphql";
 import { request } from "graphql-request";
 
@@ -17,6 +19,7 @@ export default function GraphQLFormBuilder() {
   const [selectedMutation, setSelectedMutation] = useState<string | null>(null);
   const [inputFields, setInputFields] = useState<any[]>([]);
   const [formData, setFormData] = useState<{ [key: string]: any }>({});
+  const [enumsMap, setEnumsMap] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     const fetchSchema = async () => {
@@ -32,6 +35,17 @@ export default function GraphQLFormBuilder() {
         const fields = mutationType.getFields();
         setMutations(Object.keys(fields));
       }
+
+      const allTypes = builtSchema.getTypeMap();
+      const enumTypes: Record<string, string[]> = {};
+
+      Object.values(allTypes).forEach((type) => {
+        if (isEnumType(type)) {
+          enumTypes[type.name] = type.getValues().map((v) => v.name);
+        }
+      });
+
+      setEnumsMap(enumTypes);
     };
 
     fetchSchema();
@@ -153,6 +167,7 @@ export default function GraphQLFormBuilder() {
   const renderField = (field: any) => {
     const fieldKey = field.name;
     const label = fieldKey.split(".").slice(-1)[0];
+    const enumOptions = enumsMap[field.type];
 
     return (
       <div key={fieldKey} className="text-left">
@@ -160,7 +175,19 @@ export default function GraphQLFormBuilder() {
           {label} ({field.type}){field.isRequired && " *"}
         </label>
 
-        {field.type === "Boolean" ? (
+        {enumOptions ? (
+          <select
+            className="w-full border rounded p-2"
+            onChange={(e) => handleChange(fieldKey, e.target.value)}
+          >
+            <option value="">-- Selecione --</option>
+            {enumOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        ) : field.type === "Boolean" ? (
           <select
             className="w-full border rounded p-2"
             onChange={(e) => handleChange(fieldKey, e.target.value === "true")}
