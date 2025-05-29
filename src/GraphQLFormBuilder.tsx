@@ -150,13 +150,48 @@ export default function GraphQLFormBuilder() {
     }
   };
 
+  const renderField = (field: any) => {
+    const fieldKey = field.name;
+    const label = fieldKey.split(".").slice(-1)[0];
+
+    return (
+      <div key={fieldKey} className="text-left">
+        <label className="block font-medium mb-1 text-left">
+          {label} ({field.type}){field.isRequired && " *"}
+        </label>
+
+        {field.type === "Boolean" ? (
+          <select
+            className="w-full border rounded p-2"
+            onChange={(e) => handleChange(fieldKey, e.target.value === "true")}
+          >
+            <option value="">-- Selecione --</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        ) : (
+          <input
+            type={
+              field.type === "Int" || field.type === "Float" ? "number" : "text"
+            }
+            step={field.type === "Float" ? "any" : undefined}
+            className="w-full border rounded p-2"
+            onChange={(e) => handleChange(fieldKey, e.target.value)}
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="max-w-screen-xl mx-auto p-6">
-      <h2 className="text-2xl font-semibold mb-4">Mutations disponíveis</h2>
+    <div className="max-w-screen-xl mx-auto p-6 text-left">
+      <h2 className="text-2xl font-semibold mb-4 text-left">
+        Mutations disponíveis
+      </h2>
 
       <select
         onChange={(e) => handleMutationSelect(e.target.value)}
-        className="mb-6 w-full p-2 border rounded"
+        className="mb-6 w-full p-2 border rounded text-left"
       >
         <option value="">-- Selecione uma mutation --</option>
         {mutations.map((m) => (
@@ -168,44 +203,35 @@ export default function GraphQLFormBuilder() {
 
       {inputFields.length > 0 && (
         <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-            {inputFields.map((field) => (
-              <div key={field.name}>
-                <label className="block font-medium mb-1 text-left">
-                  {field.name.split(".").slice(-1)[0]} ({field.type})
-                  {field.isRequired && " *"}
-                </label>
-
-                {field.type === "Boolean" ? (
-                  <select
-                    className="w-full border rounded p-2"
-                    onChange={(e) =>
-                      handleChange(field.name, e.target.value === "true")
-                    }
-                  >
-                    <option value="">-- Selecione --</option>
-                    <option value="true">true</option>
-                    <option value="false">false</option>
-                  </select>
-                ) : (
-                  <input
-                    type={
-                      field.type === "Int" || field.type === "Float"
-                        ? "number"
-                        : "text"
-                    }
-                    step={field.type === "Float" ? "any" : undefined}
-                    className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300"
-                    onChange={(e) => handleChange(field.name, e.target.value)}
-                  />
-                )}
+          {Object.entries(
+            inputFields.reduce<Record<string, any[]>>((acc, field) => {
+              const path = field.name.replace(/^input\./, "");
+              const parts = path.split(".");
+              const prefix =
+                parts.length > 1 ? parts.slice(0, -1).join(".") : "";
+              if (!acc[prefix]) acc[prefix] = [];
+              acc[prefix].push(field);
+              return acc;
+            }, {})
+          ).map(([prefix, fields]) => (
+            <fieldset
+              key={prefix}
+              className="mb-6 border border-gray-300 rounded p-4 text-left"
+            >
+              {prefix && (
+                <legend className="text-lg font-semibold px-2 text-gray-700 text-left">
+                  {prefix}
+                </legend>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-2 text-left">
+                {fields.map(renderField)}
               </div>
-            ))}
-          </div>
+            </fieldset>
+          ))}
 
           <button
             type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition text-left"
           >
             Executar
           </button>
