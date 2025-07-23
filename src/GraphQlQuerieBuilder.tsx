@@ -1,223 +1,171 @@
 // GraphQLQueryBuilder.tsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTable } from 'react-table';
+import { GraphQLClient } from 'graphql-request';
 
-type IntrospectionQuery = {
-  data: {
-    __schema: {
-      queryType: { name: string };
-      types: Array<{
-        kind: string;
-        name: string;
-        fields?: Array<{
-          name: string;
-          args: Array<{ name: string; type: any }>;
-          type: any;
-        }>;
-      }>;
-    };
-  };
-};
+function getClient(endpoint: string) {
+  return new GraphQLClient(endpoint, {
+    headers: {
+      // adicione cabeçalhos se necessário, igual ao original
+    },
+  });
+}
 
-type QueryDefinition = {
-  name: string;
-  args: Array<{ name: string; type: string }>;
-};
+type Arg = { name: string; type: string };
+type QueryDef = { name: string; args: Arg[] };
 
-type Props = {
-  endpoint: string;
-};
+const GraphQLQueryBuilder: React.FC = () => {
+  const endpoint = process.env.REACT_APP_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
+  const client = getClient(endpoint);
 
-export const GraphQLQueryBuilder: React.FC<Props> = ({ endpoint }) => {
-  const [queries, setQueries] = useState<QueryDefinition[]>([]);
-  const [selectedQuery, setSelectedQuery] = useState<string>('');
-  const [argsValues, setArgsValues] = useState<Record<string, any>>({});
-  const [resultData, setResultData] = useState<any[]>([]);
+  const [queries, setQueries] = useState<QueryDef[]>([]);
+  const [selected, setSelected] = useState<string>('');
+  const [argsValues, setArgsValues] = useState<Record<string, string>>({});
+  const [dataRows, setDataRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
 
   useEffect(() => {
-    // 1. introspecção do schema
-    async function fetchSchema() {
-      const introspectionQuery = `
-        query Introspection {
+    async function loadSchema() {
+      const intQuery = `
+        query {
           __schema {
             queryType { name }
             types {
-              kind
               name
               fields {
                 name
-                args { name type { kind name ofType { kind name } } }
-                type { kind name ofType { kind name } }
+                args { name type { kind name ofType { kind name ofType { kind name } } } }
               }
             }
           }
         }
       `;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: introspectionQuery }),
-      });
-      const json: IntrospectionQuery = await res.json();
-      const queryTypeName = json.data.__schema.queryType.name;
-
-      const qDefs: QueryDefinition[] = [];
-
-      for (const type of json.data.__schema.types) {
-        if (type.name === queryTypeName && type.fields) {
-          for (const field of type.fields) {
-            const args = field.args.map(arg => ({
-              name: arg.name,
-              type: arg.type.name || arg.type.ofType?.name || 'String',
-            }));
-            qDefs.push({ name: field.name, args });
-          }
-        }
+      try {
+        const resp = await client.request<any>(intQuery);
+        const qt = resp.__schema.queryType.name;
+        const qfs = resp.__schema.types
+          .find((t: any) => t.name === qt)?.fields || [];
+        const qdefs: QueryDef[] = qfs.map((f: any) => ({
+          name: f.name,
+          args: f.args.map((a: any) => ({
+            name: a.name,
+            type: a.type.name || a.type.ofType?.name || 'String',
+          })),
+        }));
+        setQueries(qdefs);
+      } catch (e: any) {
+        setError(e.message);
       }
-      setQueries(qDefs);
     }
-
-    fetchSchema();
-  }, [endpoint]);
+    loadSchema();
+  }, [client]);
 
   useEffect(() => {
-    // Zera argumentos e resultado ao trocar a query
     setArgsValues({});
-    setResultData([]);
-  }, [selectedQuery]);
+    setDataRows([]);
+    setError(undefined);
+  }, [selected]);
 
-  const executeQuery = async () => {
-    const q = queries.find(q => q.name === selectedQuery);
+  const runQuery = async () => {
+    const q = queries.find(q => q.name === selected);
     if (!q) return;
 
-    const argsDef = q.args;
-    const argsStr = argsDef.length
-      ? '(' +
-        argsDef.map(a => `$${a.name}: ${a.type}`).join(', ') +
-        ')'
-      : '';
-
-    const inputAssignments = argsDef.length
-      ? '(' +
-        argsDef.map(a => `${a.name}: $${a.name}`).join(', ') +
-        ')'
-      : '';
-
+    const argsDecl = q.args.map(a => `$${a.name}: ${a.type}`).join(', ');
+    const argsPass = q.args.map(a => `${a.name}: $${a.name}`).join(', ');
     const gql = `
-      query RunQuery${argsStr} {
-        ${selectedQuery}${inputAssignments} {
+      query ${selected}${argsDecl ? `(${argsDecl})` : ''} {
+        ${selected}${argsPass ? `(${argsPass})` : ''} {
           __typename
-          ... on Node { id }
-          ... on Error { message }
-          # Suporte simplificado: renderiza campos da primeira camada
+          ... on Object { ${/* pegamos todos campos na primeira camada */''} __typename }
+          # Note: pode expandir introspecção para extrair campos reais
         }
       }
     `;
+    const vars: any = {};
+    q.args.forEach(a => (vars[a.name] = argsValues[a.name]));
 
-    const variables: Record<string, any> = {};
-    for (const a of argsDef) {
-      variables[a.name] = argsValues[a.name];
+    setLoading(true);
+    setError(undefined);
+    try {
+      const resp = await client.request<any>(gql, vars);
+      const result = resp[selected];
+      const rows = Array.isArray(result) ? result : result ? [result] : [];
+      setDataRows(rows);
+    } catch (e: any) {
+      setError(e.message);
+      setDataRows([]);
+    } finally {
+      setLoading(false);
     }
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: gql, variables }),
-    });
-    const { data } = await res.json();
-
-    let rows: any[] = [];
-    if (Array.isArray(data[selectedQuery])) {
-      rows = data[selectedQuery];
-    } else if (data[selectedQuery]) {
-      rows = [data[selectedQuery]];
-    }
-    setResultData(rows);
   };
 
-  const columns = useMemo(() => {
-    if (!resultData || resultData.length === 0) return [];
-    const firstRow = resultData[0];
-    return Object.keys(firstRow).map(k => ({
-      Header: k,
-      accessor: k,
+  const columns = React.useMemo(() => {
+    if (!dataRows.length) return [];
+    return Object.keys(dataRows[0]).map(key => ({
+      Header: key,
+      accessor: key,
     }));
-  }, [resultData]);
+  }, [dataRows]);
 
-  const tableInstance = useTable({ columns, data: resultData });
+  const table = useTable({ columns, data: dataRows });
 
   return (
     <div>
-      <h3>GraphQL Query Builder</h3>
+      <h2>GraphQL Query Builder</h2>
+      {error && <div style={{ color: 'red' }}>Erro: {error}</div>}
+
       <div>
-        <label>Query: </label>
-        <select
-          value={selectedQuery}
-          onChange={e => setSelectedQuery(e.target.value)}
-        >
-          <option value="">-- selecione --</option>
+        <label>Query:</label>
+        <select value={selected} onChange={e => setSelected(e.target.value)}>
+          <option value="">— selecione —</option>
           {queries.map(q => (
-            <option key={q.name} value={q.name}>
-              {q.name}
-            </option>
+            <option key={q.name} value={q.name}>{q.name}</option>
           ))}
         </select>
+        <button onClick={runQuery} disabled={!selected || loading} style={{ marginLeft: 8 }}>
+          {loading ? 'Carregando...' : 'Executar'}
+        </button>
       </div>
 
-      {selectedQuery && (
+      {selected && queries.find(q => q.name === selected)?.args.length ? (
         <div style={{ marginTop: 16 }}>
-          <h4>Parâmetros</h4>
-          {queries
-            .find(q => q.name === selectedQuery)!
-            .args.map(arg => (
-              <div key={arg.name}>
-                <label>{arg.name}: </label>
-                <input
-                  type="text"
-                  value={argsValues[arg.name] ?? ''}
-                  onChange={e =>
-                    setArgsValues(prev => ({
-                      ...prev,
-                      [arg.name]: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          <button onClick={executeQuery} style={{ marginTop: 8 }}>
-            Executar
-          </button>
+          <h4>Argumentos</h4>
+          {queries.find(q => q.name === selected)!.args.map(arg => (
+            <div key={arg.name}>
+              <label>{arg.name}:</label>
+              <input
+                type="text"
+                value={argsValues[arg.name] || ''}
+                onChange={e => setArgsValues(prev => ({ ...prev, [arg.name]: e.target.value }))}
+              />
+            </div>
+          ))}
         </div>
-      )}
+      ) : null}
 
-      {resultData && resultData.length > 0 && (
+      {dataRows.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <h4>Resultado</h4>
-          <table {...tableInstance.getTableProps()} style={{ border: 'solid 1px gray' }}>
+          <table {...table.getTableProps()} style={{ border: '1px solid #ddd' }}>
             <thead>
-              {tableInstance.headerGroups.map(headerGroup => (
-                <tr {...headerGroup.getHeaderGroupProps()}>
-                  {headerGroup.headers.map(column => (
-                    <th
-                      {...column.getHeaderProps()}
-                      style={{ borderBottom: 'solid 3px red', background: 'aliceblue', padding: '5px' }}
-                    >
-                      {column.render('Header')}
+              {table.headerGroups.map((hg) => (
+                <tr {...hg.getHeaderGroupProps()}>
+                  {hg.headers.map(col => (
+                    <th {...col.getHeaderProps()} style={{ padding: 8, background: '#f0f0f0' }}>
+                      {col.render('Header')}
                     </th>
                   ))}
                 </tr>
               ))}
             </thead>
-            <tbody {...tableInstance.getTableBodyProps()}>
-              {tableInstance.rows.map(row => {
-                tableInstance.prepareRow(row);
+            <tbody {...table.getTableBodyProps()}>
+              {table.rows.map(row => {
+                table.prepareRow(row);
                 return (
                   <tr {...row.getRowProps()}>
                     {row.cells.map(cell => (
-                      <td
-                        {...cell.getCellProps()}
-                        style={{ padding: '5px', border: 'solid 1px gray' }}
-                      >
+                      <td {...cell.getCellProps()} style={{ padding: 8, border: '1px solid #ccc' }}>
                         {String(cell.value)}
                       </td>
                     ))}
@@ -231,3 +179,5 @@ export const GraphQLQueryBuilder: React.FC<Props> = ({ endpoint }) => {
     </div>
   );
 };
+
+export default GraphQLQueryBuilder;
