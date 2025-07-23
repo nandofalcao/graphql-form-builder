@@ -1,12 +1,17 @@
 // GraphQLQueryBuilder.tsx
-import React, { useState, useEffect } from 'react';
-import { useTable } from 'react-table';
+import React, { useState, useEffect, useMemo } from 'react';
 import { GraphQLClient } from 'graphql-request';
+import {
+  createColumnHelper,
+  useReactTable,
+  getCoreRowModel,
+  ColumnDef,
+} from '@tanstack/react-table';
 
-function getClient(endpoint: string) {
+function getClient(endpoint: string, token: string) {
   return new GraphQLClient(endpoint, {
     headers: {
-      // adicione cabeçalhos se necessário, igual ao original
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 }
@@ -16,7 +21,11 @@ type QueryDef = { name: string; args: Arg[] };
 
 const GraphQLQueryBuilder: React.FC = () => {
   const endpoint = process.env.REACT_APP_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
-  const client = getClient(endpoint);
+
+  const [token, setToken] = useState<string>('');
+  const [client, setClient] = useState<GraphQLClient>(() =>
+    getClient(endpoint, '')
+  );
 
   const [queries, setQueries] = useState<QueryDef[]>([]);
   const [selected, setSelected] = useState<string>('');
@@ -25,9 +34,15 @@ const GraphQLQueryBuilder: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
+  // Atualiza o client sempre que o token mudar
+  useEffect(() => {
+    setClient(getClient(endpoint, token));
+  }, [endpoint, token]);
+
+  // Introspecção
   useEffect(() => {
     async function loadSchema() {
-      const intQuery = `
+      const introspectionQuery = `
         query {
           __schema {
             queryType { name }
@@ -35,18 +50,17 @@ const GraphQLQueryBuilder: React.FC = () => {
               name
               fields {
                 name
-                args { name type { kind name ofType { kind name ofType { kind name } } } }
+                args { name type { kind name ofType { kind name } } }
               }
             }
           }
         }
       `;
       try {
-        const resp = await client.request<any>(intQuery);
+        const resp: any = await client.request(introspectionQuery);
         const qt = resp.__schema.queryType.name;
-        const qfs = resp.__schema.types
-          .find((t: any) => t.name === qt)?.fields || [];
-        const qdefs: QueryDef[] = qfs.map((f: any) => ({
+        const type = resp.__schema.types.find((t: any) => t.name === qt);
+        const qdefs = (type?.fields || []).map((f: any) => ({
           name: f.name,
           args: f.args.map((a: any) => ({
             name: a.name,
@@ -61,12 +75,14 @@ const GraphQLQueryBuilder: React.FC = () => {
     loadSchema();
   }, [client]);
 
+  // Reset quando uma nova query é selecionada
   useEffect(() => {
     setArgsValues({});
     setDataRows([]);
     setError(undefined);
   }, [selected]);
 
+  // Executa a query
   const runQuery = async () => {
     const q = queries.find(q => q.name === selected);
     if (!q) return;
@@ -76,9 +92,9 @@ const GraphQLQueryBuilder: React.FC = () => {
     const gql = `
       query ${selected}${argsDecl ? `(${argsDecl})` : ''} {
         ${selected}${argsPass ? `(${argsPass})` : ''} {
-          __typename
-          ... on Object { ${/* pegamos todos campos na primeira camada */''} __typename }
-          # Note: pode expandir introspecção para extrair campos reais
+          ${dataRows[0]
+            ? Object.keys(dataRows[0]).join(' ')
+            : '__typename'}
         }
       }
     `;
@@ -88,7 +104,7 @@ const GraphQLQueryBuilder: React.FC = () => {
     setLoading(true);
     setError(undefined);
     try {
-      const resp = await client.request<any>(gql, vars);
+      const resp: any = await client.request(gql, vars);
       const result = resp[selected];
       const rows = Array.isArray(result) ? result : result ? [result] : [];
       setDataRows(rows);
@@ -100,44 +116,71 @@ const GraphQLQueryBuilder: React.FC = () => {
     }
   };
 
-  const columns = React.useMemo(() => {
+  // Configura colunas da tabela
+  const columns = useMemo<ColumnDef<any, any>[]>(() => {
     if (!dataRows.length) return [];
-    return Object.keys(dataRows[0]).map(key => ({
-      Header: key,
-      accessor: key,
-    }));
+    const helper = createColumnHelper<any>();
+    return Object.keys(dataRows[0]).map(key =>
+      helper.accessor(key, { header: key })
+    );
   }, [dataRows]);
 
-  const table = useTable({ columns, data: dataRows });
+  const table = useReactTable({
+    data: dataRows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   return (
     <div>
       <h2>GraphQL Query Builder</h2>
+
+      <div style={{ marginBottom: 16 }}>
+        <label>Bearer Token:</label>
+        <input
+          type="text"
+          value={token}
+          onChange={e => setToken(e.target.value)}
+          style={{ width: '100%', marginTop: 4 }}
+          placeholder="Cole aqui o token e aperte Enter"
+          onBlur={() => setClient(getClient(endpoint, token))}
+        />
+      </div>
+
       {error && <div style={{ color: 'red' }}>Erro: {error}</div>}
 
-      <div>
+      <div style={{ marginBottom: 16 }}>
         <label>Query:</label>
         <select value={selected} onChange={e => setSelected(e.target.value)}>
           <option value="">— selecione —</option>
           {queries.map(q => (
-            <option key={q.name} value={q.name}>{q.name}</option>
+            <option key={q.name} value={q.name}>
+              {q.name}
+            </option>
           ))}
         </select>
-        <button onClick={runQuery} disabled={!selected || loading} style={{ marginLeft: 8 }}>
+
+        <button
+          onClick={runQuery}
+          disabled={!selected || loading}
+          style={{ marginLeft: 8 }}
+        >
           {loading ? 'Carregando...' : 'Executar'}
         </button>
       </div>
 
       {selected && queries.find(q => q.name === selected)?.args.length ? (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginBottom: 16 }}>
           <h4>Argumentos</h4>
           {queries.find(q => q.name === selected)!.args.map(arg => (
-            <div key={arg.name}>
+            <div key={arg.name} style={{ marginTop: 4 }}>
               <label>{arg.name}:</label>
               <input
                 type="text"
                 value={argsValues[arg.name] || ''}
-                onChange={e => setArgsValues(prev => ({ ...prev, [arg.name]: e.target.value }))}
+                onChange={e =>
+                  setArgsValues(prev => ({ ...prev, [arg.name]: e.target.value }))
+                }
               />
             </div>
           ))}
@@ -147,31 +190,43 @@ const GraphQLQueryBuilder: React.FC = () => {
       {dataRows.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <h4>Resultado</h4>
-          <table {...table.getTableProps()} style={{ border: '1px solid #ddd' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              {table.headerGroups.map((hg) => (
-                <tr {...hg.getHeaderGroupProps()}>
-                  {hg.headers.map(col => (
-                    <th {...col.getHeaderProps()} style={{ padding: 8, background: '#f0f0f0' }}>
-                      {col.render('Header')}
+              {table.getHeaderGroups().map(hg => (
+                <tr key={hg.id}>
+                  {hg.headers.map(header => (
+                    <th
+                      key={header.id}
+                      style={{
+                        borderBottom: '1px solid black',
+                        padding: 8,
+                        textAlign: 'left',
+                        background: '#f9f9f9',
+                      }}
+                    >
+                      {header.isPlaceholder ? null : header.renderHeader()}
                     </th>
                   ))}
                 </tr>
               ))}
             </thead>
-            <tbody {...table.getTableBodyProps()}>
-              {table.rows.map(row => {
-                table.prepareRow(row);
-                return (
-                  <tr {...row.getRowProps()}>
-                    {row.cells.map(cell => (
-                      <td {...cell.getCellProps()} style={{ padding: 8, border: '1px solid #ccc' }}>
-                        {String(cell.value)}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
+            <tbody>
+              {table.getRowModel().rows.map(row => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map(cell => (
+                    <td
+                      key={cell.id}
+                      style={{
+                        padding: 8,
+                        borderBottom: '1px solid #eee',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      {String(cell.getValue())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
